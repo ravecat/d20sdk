@@ -7,10 +7,23 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@rvct/phoenix':
+        specifier: ^1.1.0
+        version: 1.1.0
+      penpal:
+        specifier: ^7.0.6
+        version: 7.0.6
     devDependencies:
       '@biomejs/biome':
         specifier: 2.4.13
         version: 2.4.13
+      '@types/phoenix':
+        specifier: ^1.6.7
+        version: 1.6.7
+      phoenix:
+        specifier: ^1.8.7
+        version: 1.8.7
       prettier:
         specifier: ^3.8.3
         version: 3.8.3
@@ -73,6 +86,22 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@rvct/phoenix@1.1.0':
+    resolution: {integrity: sha512-tJoC/xXBDlOj/DmYe68VGqRdCMiILm1igmzXdl2DNI5aUEH4SfPo/RvU6unphF72IS2j2RpT/vGaZTFEchbjww==}
+
+  '@types/phoenix@1.6.7':
+    resolution: {integrity: sha512-oN9ive//QSBkf19rfDv45M7eZPi0eEXylht2OLEXicu5b4KoQ1OzXIw+xDSGWxSxe1JmepRR/ZH283vsu518/Q==}
+
+  nanostores@1.3.0:
+    resolution: {integrity: sha512-XPUa/jz+P1oJvN9VBxw4L9MtdFfaH3DAryqPssqhb2kXjmb9npz0dly6rCsgFWOPr4Yg9mTfM3MDZgZZ+7A3lA==}
+    engines: {node: ^20.0.0 || >=22.0.0}
+
+  penpal@7.0.6:
+    resolution: {integrity: sha512-iZ70OhtiZ959V57j7vSKBuv1UEXwCEu7C+TK7YxAkrB1JahB4pElHs1S1ThzMuGYNQ+SbExOXmvqrEeGwX/A8g==}
+
+  phoenix@1.8.7:
+    resolution: {integrity: sha512-mQfiO4PNEjToj5iUfka6OjRWtCNe+0JsVrW6x+q94kPN8VX8taulJPTa4/u2ZPb2b8+hzmBAvMxQWnuTc0T4KQ==}
+
   prettier@3.8.3:
     resolution: {integrity: sha512-7igPTM53cGHMW8xWuVTydi2KO233VFiTNyF5hLJqpilHfmn8C8gPf+PS7dUT64YcXFbiMGZxS9pCSxL/Dxm/Jw==}
     engines: {node: '>=14'}
@@ -119,6 +148,19 @@ snapshots:
 
   '@biomejs/cli-win32-x64@2.4.13':
     optional: true
+
+  '@rvct/phoenix@1.1.0':
+    dependencies:
+      '@types/phoenix': 1.6.7
+      nanostores: 1.3.0
+
+  '@types/phoenix@1.6.7': {}
+
+  nanostores@1.3.0: {}
+
+  penpal@7.0.6: {}
+
+  phoenix@1.8.7: {}
 
   prettier@3.8.3: {}
 
