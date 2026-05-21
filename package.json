@@ -1,0 +1,41 @@
+{
+  "name": "@rvct/d20sdk",
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.26.2",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "typescript",
+    "sdk"
+  ],
+  "scripts": {
+    "check": "pnpm run lint && pnpm run typecheck",
+    "format": "biome format --write . && pnpm run format:md",
+    "format:md": "prettier --write \"*.md\"",
+    "lint": "biome check . && pnpm run lint:md",
+    "lint:fix": "biome check --write . && pnpm run format:md",
+    "lint:md": "prettier --check \"*.md\"",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.13",
+    "prettier": "^3.8.3",
+    "typescript": "^5.9.3"
+  }
+}

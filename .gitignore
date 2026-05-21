@@ -1,0 +1,10 @@
+.direnv/
+node_modules/
+/dist/
+/coverage/
+
+/envs/*
+!/envs/.env.example
+.env
+.env.*
+!.env.example
