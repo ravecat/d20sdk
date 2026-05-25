@@ -1,40 +1,171 @@
 import { session } from "@rvct/phoenix"
+import { atom, onMount } from "nanostores"
 import { connect as connectToContext, WindowMessenger } from "penpal"
 import { Socket } from "phoenix"
-import type { ShellConnectOptions, ShellMethods, WindowMessengerOptions } from "./types"
+import type {
+  InnerSessionState,
+  ShellConnectOptions,
+  ShellMethods,
+  ShellRuntime,
+  ShellRuntimeActionContext,
+  ShellRuntimeReadable,
+  ShellRuntimeState,
+  WindowMessengerOptions,
+} from "./types"
 
 type RuntimeSession<TSessionSpec> = ReturnType<typeof session<TSessionSpec>>
+type RuntimeExtensionFactory<TSessionSpec> = Parameters<RuntimeSession<TSessionSpec>["extend"]>[0]
+type RuntimeExtension<TSessionSpec> = {
+  defineExtension: RuntimeExtensionFactory<TSessionSpec>
+  runtime: (ShellRuntimeReadable<TSessionSpec> & Record<string, unknown>) | null
+}
 
-export async function connect<TSessionSpec = unknown>(
+export function connect<TSessionSpec = unknown>(
   options: ShellConnectOptions = {},
-): Promise<RuntimeSession<TSessionSpec> | null> {
-  if (window.parent === window) {
-    return null
-  }
+): ShellRuntime<TSessionSpec> {
+  const initialState = {
+    value: null,
+    status: "loading",
+    error: null,
+    processing: {},
+    errors: {},
+    timeouts: {},
+  } as InnerSessionState<TSessionSpec>
 
-  const messengerOptions: WindowMessengerOptions = {
-    ...options,
-    remoteWindow: options.remoteWindow ?? window.parent,
-  }
+  const $state = atom<ShellRuntimeState<TSessionSpec>>(initialState)
+  let hasStarted = false
+  let innerSession: RuntimeSession<TSessionSpec> | null = null
+  const runtimeExtensions: Array<RuntimeExtension<TSessionSpec>> = []
 
-  const shellConnection = connectToContext<ShellMethods>({
-    messenger: new WindowMessenger(messengerOptions),
+  onMount($state, () => {
+    hasStarted = true
+
+    if (window.parent === window) {
+      $state.set({
+        ...initialState,
+        status: "standalone",
+        error: null,
+      } as ShellRuntimeState<TSessionSpec>)
+      return
+    }
+
+    $state.set(initialState)
+
+    let cancelled = false
+    let unsubscribeInnerRuntime = () => {}
+    let socket: Socket | null = null
+    let shellConnection: ReturnType<typeof connectToContext<ShellMethods>> | null = null
+
+    void (async () => {
+      try {
+        const messengerOptions: WindowMessengerOptions = {
+          ...options,
+          remoteWindow: options.remoteWindow ?? window.parent,
+        }
+
+        shellConnection = connectToContext<ShellMethods>({
+          messenger: new WindowMessenger(messengerOptions),
+        })
+
+        const shell = await shellConnection.promise
+        const bootstrap = await shell.bootstrap()
+
+        shellConnection.destroy()
+        shellConnection = null
+
+        if (cancelled) {
+          return
+        }
+
+        socket = new Socket(bootstrap.endpoint, {
+          authToken: bootstrap.token,
+        })
+        socket.connect()
+
+        innerSession = session<TSessionSpec>(socket, {
+          topic: bootstrap.topic,
+        })
+
+        for (const runtimeExtension of runtimeExtensions) {
+          runtimeExtension.runtime = innerSession.extend(
+            runtimeExtension.defineExtension,
+          ) as ShellRuntimeReadable<TSessionSpec> & Record<string, unknown>
+        }
+
+        unsubscribeInnerRuntime = innerSession.subscribe((nextState) => {
+          $state.set(nextState)
+        })
+      } catch (cause) {
+        if (cancelled) {
+          return
+        }
+
+        $state.set({
+          ...initialState,
+          status: "failed",
+          error: { kind: "bootstrap_error", cause },
+        } as ShellRuntimeState<TSessionSpec>)
+      } finally {
+        shellConnection?.destroy()
+        shellConnection = null
+      }
+    })()
+
+    return () => {
+      cancelled = true
+      unsubscribeInnerRuntime()
+      shellConnection?.destroy()
+      socket?.disconnect()
+      innerSession = null
+      for (const runtimeExtension of runtimeExtensions) {
+        runtimeExtension.runtime = null
+      }
+    }
   })
 
-  try {
-    const shell = await shellConnection.promise
-    const bootstrap = await shell.bootstrap()
+  return {
+    subscribe: (listener) => $state.subscribe(listener),
+    extend<TExtension extends object>(
+      defineExtension: (session: ShellRuntimeActionContext<TSessionSpec>) => TExtension,
+    ) {
+      if (hasStarted) {
+        throw new Error("Cannot extend shell runtime after it has started")
+      }
 
-    const socket = new Socket(bootstrap.endpoint, {
-      authToken: bootstrap.token,
-    })
+      const runtimeExtension: RuntimeExtension<TSessionSpec> = {
+        defineExtension: defineExtension as RuntimeExtensionFactory<TSessionSpec>,
+        runtime: null,
+      }
+      runtimeExtensions.push(runtimeExtension)
 
-    socket.connect()
+      const extension = defineExtension({
+        push: ((event: string) => {
+          throw new Error(`Cannot push "${event}" before shell runtime is ready`)
+        }) as ShellRuntimeActionContext<TSessionSpec>["push"],
+      })
 
-    return session<TSessionSpec>(socket, {
-      topic: bootstrap.topic,
-    })
-  } finally {
-    shellConnection.destroy()
+      const wrappedExtension = { ...extension } as Record<string, unknown>
+
+      for (const [action, value] of Object.entries(extension)) {
+        if (typeof value !== "function") {
+          continue
+        }
+
+        wrappedExtension[action] = function (this: unknown, ...args: unknown[]) {
+          const method = runtimeExtension.runtime?.[action]
+
+          if (typeof method !== "function") {
+            throw new Error(`Cannot run "${action}" before shell runtime is ready`)
+          }
+
+          return method.apply(this, args)
+        }
+      }
+
+      return {
+        ...(wrappedExtension as TExtension),
+        subscribe: (listener) => $state.subscribe(listener),
+      }
+    },
   }
 }

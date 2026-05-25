@@ -46,19 +46,38 @@ const cleanup = () => {
 };
 ```
 
-Embedded modules use `shell(...)` to request bootstrap from their parent shell
-and create a runtime session. Direct standalone launch returns `null`.
+Embedded modules use `shell(...)` to create a reactive runtime store. The first
+subscription requests bootstrap from the parent shell, creates the Phoenix
+socket, and subscribes to the runtime session. Direct standalone launch emits a
+`standalone` status.
 
 ```ts
 import { shell } from "@rvct/d20sdk";
 
-const runtime = await shell({
+const runtime = shell({
   allowedOrigins: ["https://shell.example.com"],
 });
 
-const unsubscribe = runtime?.subscribe((state) => {
+const unsubscribe = runtime.subscribe((state) => {
   console.log(state.status, state.value, state.error);
 });
+```
+
+Use `extend` before the first subscription to expose module-specific actions.
+The `push` function is only available inside the extension factory. The factory
+should only declare methods; call `push` inside returned methods, not while
+building the returned object.
+
+```ts
+const game = shell<GameSession>({
+  allowedOrigins: ["https://shell.example.com"],
+}).extend(({ push }) => ({
+  start() {
+    return push("start", {});
+  },
+}));
+
+game.start();
 ```
 
 ## API
@@ -93,8 +112,10 @@ Embedded-module API for connecting to a parent shell.
   concrete origin.
 
 `TSessionSpec` is passed through to `@rvct/phoenix` `session(...)` and controls
-the typed runtime state, events, and actions. `null` means the module is running
-outside an iframe. A failed shell bootstrap rejects the promise.
+the typed runtime state, events, and actions. `shell(...)` is synchronous and
+cold: no Penpal or Phoenix work starts until the runtime has a subscriber.
+Outside an iframe, the runtime state becomes `standalone`. A failed shell
+bootstrap emits `status: "failed"` with `error.kind: "bootstrap_error"`.
 
 ## Prerequisites
 
