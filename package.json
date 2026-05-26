@@ -1,12 +1,16 @@
 {
   "name": "@rvct/d20sdk",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "packageManager": "pnpm@10.26.2",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
   "publishConfig": {
     "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ravecat/d20sdk.git"
   },
   "exports": {
     ".": {
@@ -35,6 +39,7 @@
     "lint": "biome check . && pnpm run lint:md",
     "lint:fix": "biome check --write . && pnpm run format:md",
     "lint:md": "prettier --check \"*.md\"",
+    "release": "semantic-release",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
@@ -47,9 +52,13 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.13",
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
     "@types/phoenix": "^1.6.7",
     "phoenix": "^1.8.7",
     "prettier": "^3.8.3",
+    "semantic-release": "25.0.3",
+    "semantic-release-run-when": "1.0.0-beta.1",
     "typescript": "^5.9.3"
   }
 }
