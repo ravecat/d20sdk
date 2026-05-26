@@ -3,7 +3,7 @@ import type { WindowMessenger } from "penpal"
 
 export type WindowMessengerOptions = ConstructorParameters<typeof WindowMessenger>[0]
 
-type InnerSession<TSessionSpec> = ReturnType<typeof session<TSessionSpec>>
+type InnerSession<TSessionSpec> = ReturnType<typeof session<TSessionSpec & object>>
 
 export type InnerSessionState<TSessionSpec> = Parameters<
   Parameters<InnerSession<TSessionSpec>["subscribe"]>[0]
@@ -47,7 +47,7 @@ export type ShellRuntimeReadable<TSessionSpec> = {
   subscribe(listener: (value: ShellRuntimeState<TSessionSpec>) => void): () => void
 }
 
-export type ShellRuntime<TSessionSpec> = ShellRuntimeReadable<TSessionSpec> & {
+export type ShellRuntime<TSessionSpec = object> = ShellRuntimeReadable<TSessionSpec> & {
   extend<TExtension extends object>(
     defineExtension: (session: ShellRuntimeActionContext<TSessionSpec>) => TExtension,
   ): ShellRuntimeReadable<TSessionSpec> & TExtension

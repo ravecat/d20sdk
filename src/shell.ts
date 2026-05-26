@@ -13,14 +13,14 @@ import type {
   WindowMessengerOptions,
 } from "./types"
 
-type RuntimeSession<TSessionSpec> = ReturnType<typeof session<TSessionSpec>>
+type RuntimeSession<TSessionSpec> = ReturnType<typeof session<TSessionSpec & object>>
 type RuntimeExtensionFactory<TSessionSpec> = Parameters<RuntimeSession<TSessionSpec>["extend"]>[0]
 type RuntimeExtension<TSessionSpec> = {
   defineExtension: RuntimeExtensionFactory<TSessionSpec>
   runtime: (ShellRuntimeReadable<TSessionSpec> & Record<string, unknown>) | null
 }
 
-export function connect<TSessionSpec = unknown>(
+export function connect<TSessionSpec = object>(
   options: ShellConnectOptions = {},
 ): ShellRuntime<TSessionSpec> {
   const initialState = {
@@ -82,7 +82,7 @@ export function connect<TSessionSpec = unknown>(
         })
         socket.connect()
 
-        innerSession = session<TSessionSpec>(socket, {
+        innerSession = session<TSessionSpec & object>(socket, {
           topic: bootstrap.topic,
         })
 
@@ -139,6 +139,10 @@ export function connect<TSessionSpec = unknown>(
       runtimeExtensions.push(runtimeExtension)
 
       const extension = defineExtension({
+        subscribe: ((listener: (value: InnerSessionState<TSessionSpec>) => void) =>
+          $state.subscribe(
+            listener as (value: ShellRuntimeState<TSessionSpec>) => void,
+          )) as ShellRuntimeActionContext<TSessionSpec>["subscribe"],
         push: ((event: string) => {
           throw new Error(`Cannot push "${event}" before shell runtime is ready`)
         }) as ShellRuntimeActionContext<TSessionSpec>["push"],
