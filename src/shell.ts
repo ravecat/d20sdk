@@ -139,10 +139,6 @@ export function connect<TSessionSpec = object>(
       runtimeExtensions.push(runtimeExtension)
 
       const extension = defineExtension({
-        subscribe: ((listener: (value: InnerSessionState<TSessionSpec>) => void) =>
-          $state.subscribe(
-            listener as (value: ShellRuntimeState<TSessionSpec>) => void,
-          )) as ShellRuntimeActionContext<TSessionSpec>["subscribe"],
         push: ((event: string) => {
           throw new Error(`Cannot push "${event}" before shell runtime is ready`)
         }) as ShellRuntimeActionContext<TSessionSpec>["push"],
