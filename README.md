@@ -12,8 +12,10 @@ bootstrap exchange and returns a reactive runtime session for embedded modules.
 | npm    | `npm install @rvct/d20sdk @rvct/phoenix phoenix` |
 | yarn   | `yarn add @rvct/d20sdk @rvct/phoenix phoenix`    |
 
-`@rvct/d20sdk` owns the Penpal cross-window connection. Applications provide the
-Phoenix runtime dependencies through `@rvct/phoenix` and `phoenix`.
+`@rvct/d20sdk` owns the [Penpal](https://github.com/Aaronius/penpal)
+cross-window connection. Applications provide the Phoenix runtime dependencies
+through [`@rvct/phoenix`](https://github.com/ravecat/phoenix) and the
+[`phoenix` JavaScript client](https://hexdocs.pm/phoenix/js/).
 
 ## Usage
 
@@ -98,8 +100,9 @@ Options:
   module. `endpoint` is the Phoenix socket mount endpoint, for example
   `wss://shell.example.com/module`; Phoenix appends `/websocket` internally.
 
-The returned connection is the Penpal connection object. Call `destroy()` when
-the iframe or component is removed.
+The returned connection is the
+[Penpal connection object](https://github.com/Aaronius/penpal). Call `destroy()`
+when the iframe or component is removed.
 
 ### `shell<TSessionSpec>(options)`
 
@@ -111,11 +114,25 @@ Embedded-module API for connecting to a parent shell.
   Calling `shell()` without options uses `*`; production modules should pass a
   concrete origin.
 
-`TSessionSpec` is passed through to `@rvct/phoenix` `session(...)` and controls
-the typed runtime state, events, and actions. `shell(...)` is synchronous and
-cold: no Penpal or Phoenix work starts until the runtime has a subscriber.
-Outside an iframe, the runtime state becomes `standalone`. A failed shell
-bootstrap emits `status: "failed"` with `error.kind: "bootstrap_error"`.
+`TSessionSpec` is passed through to
+[`@rvct/phoenix` `session(...)`](https://github.com/ravecat/phoenix#basic-usage)
+and controls the typed runtime state, events, and actions. `shell(...)` is
+synchronous and cold: no Penpal or Phoenix work starts until the runtime has a
+subscriber. Outside an iframe, the runtime state becomes `standalone`. A failed
+shell bootstrap emits `status: "failed"` with `error.kind: "bootstrap_error"`.
+
+## References
+
+- [`@rvct/phoenix`](https://github.com/ravecat/phoenix) provides the reactive
+  `session(...)` wrapper and the `TSessionSpec` contract shape consumed by this
+  package.
+- [Phoenix JavaScript client](https://hexdocs.pm/phoenix/js/) provides the
+  `Socket` and `Channel` primitives used after bootstrap.
+- [Phoenix Channels](https://hexdocs.pm/phoenix/channels.html) define the
+  server-side topics, events, replies, and broadcasts that become runtime
+  contracts.
+- [Penpal](https://github.com/Aaronius/penpal) provides the promise-based
+  cross-window `postMessage` connection between the shell and iframe module.
 
 ## Prerequisites
 
