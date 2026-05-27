@@ -1,4 +1,4 @@
-import { session } from "@rvct/phoenix"
+import { defer } from "@rvct/phoenix"
 import { atom, onMount } from "nanostores"
 import { connect as connectToContext, WindowMessenger } from "penpal"
 import { Socket } from "phoenix"
@@ -7,9 +7,11 @@ import type { ShellMethods, WindowMessengerOptions } from "./types"
 type ShellConnectOptions = Omit<WindowMessengerOptions, "remoteWindow"> &
   Partial<Pick<WindowMessengerOptions, "remoteWindow">>
 
-export type ShellSession<TValue = unknown> = ReturnType<typeof session<TValue>>
+type DeferredSession<TValue> = ReturnType<typeof defer<TValue>>
 
-type ShellSessionConfig<TValue> = Omit<Parameters<typeof session<TValue>>[1], "topic">
+export type ShellSession<TValue = unknown> = DeferredSession<TValue>["session"]
+
+type ShellSessionConfig<TValue> = Parameters<typeof defer<TValue>>[0]
 
 type ReadableStore<TValue> = {
   subscribe(listener: (value: TValue) => void): () => void
@@ -40,7 +42,7 @@ export type ShellConnectionState =
 
 export type Shell<TValue = unknown> = {
   readonly connection: ReadableStore<ShellConnectionState>
-  readonly session: ReadableStore<ShellSession<TValue> | null>
+  readonly session: ShellSession<TValue>
 }
 
 export function connect<TValue = unknown>(
@@ -51,13 +53,13 @@ export function connect<TValue = unknown>(
     status: "loading",
     error: null,
   })
-  const $session = atom<ShellSession<TValue> | null>(null)
+  const deferred = defer<TValue>(sessionConfig)
 
   let activeStores = 0
   let stopConnection = () => {}
 
   const startConnection = () => {
-    $session.set(null)
+    deferred.detach()
 
     if (window.parent === window) {
       $connection.set({
@@ -103,12 +105,9 @@ export function connect<TValue = unknown>(
         })
         socket.connect()
 
-        $session.set(
-          session<TValue>(socket, {
-            ...sessionConfig,
-            topic: bootstrap.topic,
-          }),
-        )
+        deferred.attach(socket, {
+          topic: bootstrap.topic,
+        })
         $connection.set({
           status: "connected",
           error: null,
@@ -118,7 +117,7 @@ export function connect<TValue = unknown>(
           return
         }
 
-        $session.set(null)
+        deferred.detach()
         $connection.set({
           status: "failed",
           error: { kind: "bootstrap_error", cause },
@@ -133,7 +132,7 @@ export function connect<TValue = unknown>(
       cancelled = true
       shellConnection?.destroy()
       socket?.disconnect()
-      $session.set(null)
+      deferred.detach()
     }
   }
 
@@ -155,14 +154,41 @@ export function connect<TValue = unknown>(
   }
 
   onMount($connection, mountStore)
-  onMount($session, mountStore)
+
+  const withShellMount = <TState, TStore extends ReadableStore<TState>>(store: TStore): TStore =>
+    ({
+      ...store,
+      subscribe(listener) {
+        const unmountShell = mountStore()
+        const unsubscribeStore = store.subscribe(listener)
+
+        return () => {
+          unsubscribeStore()
+          unmountShell()
+        }
+      },
+    }) as TStore
+
+  const sessionStore: ShellSession<TValue> = {
+    ...deferred.session,
+    subscribe(listener) {
+      const unmountShell = mountStore()
+      const unsubscribeStore = deferred.session.subscribe(listener)
+
+      return () => {
+        unsubscribeStore()
+        unmountShell()
+      }
+    },
+    extend(defineExtension) {
+      return withShellMount(deferred.session.extend(defineExtension))
+    },
+  }
 
   return {
     connection: {
       subscribe: (listener) => $connection.subscribe(listener),
     },
-    session: {
-      subscribe: (listener) => $session.subscribe(listener),
-    },
+    session: sessionStore,
   }
 }
