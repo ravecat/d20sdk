@@ -52,7 +52,7 @@ const cleanup = () => {
 Embedded modules use `shell(...)` to create Shell connection and Phoenix session
 stores. The first subscription requests bootstrap from the parent shell and
 creates the Phoenix socket. Direct standalone launch emits a `standalone`
-connection status while the session store stays in its initial loading state.
+connection status while the session store value stays `null`.
 
 ```ts
 import { shell } from "@rvct/d20sdk";
@@ -87,17 +87,29 @@ const unsubscribeConnection = runtime.connection.subscribe((connection) => {
   console.log(connection.status, connection.error);
 });
 
+let unsubscribeInnerSession = () => {};
 const unsubscribeSession = runtime.session.subscribe((session) => {
-  console.log(session.status, session.value, session.error);
+  unsubscribeInnerSession();
+  unsubscribeInnerSession = () => {};
+
+  if (!session) {
+    return;
+  }
+
+  unsubscribeInnerSession = session.subscribe((state) => {
+    console.log(state.status, state.value, state.error);
+  });
 });
 ```
 
-Use the shell session store's Phoenix-compatible `extend` to expose
-module-specific actions. The `call` and `cast` functions are only available
-inside the extension factory. The factory should only declare methods; call or
-cast inside returned methods, not while building the returned object.
+Use the published Phoenix session object's `extend` to expose module-specific
+actions. The `call` and `cast` functions are only available inside the extension
+factory. The factory should only declare methods; call or cast inside returned
+methods, not while building the returned object.
 
 ```ts
+import { shell, type ShellSession } from "@rvct/d20sdk";
+
 type GameValue = {
   turn: number;
 };
@@ -117,17 +129,31 @@ const runtime = shell<GameValue>(
   },
 );
 
-const game = runtime.session.extend(({ call }) => ({
-  start() {
-    return call<Record<string, never>, StartError>("start", {});
-  },
-}));
+const createGame = (session: ShellSession<GameValue>) =>
+  session.extend(({ call }) => ({
+    start() {
+      return call<Record<string, never>, StartError>("start", {});
+    },
+  }));
 
-const unsubscribeGame = game.subscribe((state) => {
-  console.log(state.status, state.processing.start);
+let game: ReturnType<typeof createGame> | null = null;
+let unsubscribeGame = () => {};
+
+runtime.session.subscribe((session) => {
+  unsubscribeGame();
+  unsubscribeGame = () => {};
+  game = session ? createGame(session) : null;
+
+  if (!game) {
+    return;
+  }
+
+  unsubscribeGame = game.subscribe((state) => {
+    console.log(state.status, state.processing.start);
+  });
 });
 
-const startGame = () => game.start();
+const startGame = () => game?.start();
 ```
 
 ## API
@@ -167,19 +193,37 @@ Embedded-module API for connecting to a parent shell.
 ```ts
 {
   connection: ReadableStore<ShellConnectionState>;
-  session: ShellSession<TValue>;
+  session: ReadableStore<ShellSession<TValue> | null>;
 }
 ```
 
-In Svelte, destructure the two stores and use them independently:
+In Svelte, destructure the two stores. `$session` is `null` until bootstrap
+succeeds; after that it is the actual `@rvct/phoenix` session store object:
 
 ```svelte
 {#if $connection.status === "failed"}
   <p>{$connection.error.kind}</p>
-{:else if $connection.status === "connected"}
-  <p>{$session.status}</p>
-  <p>{$session.value?.turn}</p>
+{:else if $connection.status === "connected" && $session}
+  <GameSession session={$session} />
 {/if}
+```
+
+The component that receives `session` can then read the Phoenix session state
+from that inner store:
+
+```svelte
+<script lang="ts">
+  import type { ShellSession } from "@rvct/d20sdk";
+
+  type GameValue = {
+    turn: number;
+  };
+
+  let { session }: { session: ShellSession<GameValue> } = $props();
+</script>
+
+<p>{$session.status}</p>
+<p>{$session.value?.turn}</p>
 ```
 
 `connection` only represents the Shell/Penpal/bootstrap lifecycle:
@@ -191,8 +235,9 @@ In Svelte, destructure the two stores and use them independently:
 - `failed` - Shell bootstrap failed.
 
 `connection.status: "connected"` does not mean the Phoenix channel is ready. It
-only means the SDK has created the inner Phoenix session. Read `session` to get
-the Phoenix `loading`, `ready`, `stale`, or `failed` state.
+only means the SDK has created and published the inner Phoenix session.
+Subscribe to that session object to get the Phoenix `loading`, `ready`, `stale`,
+or `failed` state.
 
 `sessionConfig` is passed through to
 [`@rvct/phoenix` `session(...)`](https://github.com/ravecat/phoenix#basic-usage)
@@ -205,9 +250,10 @@ as the session `value` type. It is not the full store state and not the old
 Phoenix session contract object. Actions are owned by the inner Phoenix session;
 methods returning `call<TOk, TError>(...)` type their `state.errors[method]`
 bucket as `TError | null`. `shell(...)` is synchronous and cold: no Penpal or
-Phoenix work starts until `connection` or `session` has a subscriber. Outside an
-iframe, the shell connection state becomes `standalone`. A failed shell
-bootstrap emits `status: "failed"` with `error.kind: "bootstrap_error"`.
+Phoenix work starts until `connection` or the outer `session` store has a
+subscriber. Outside an iframe, the shell connection state becomes `standalone`
+and the outer `session` store stays `null`. A failed shell bootstrap emits
+`status: "failed"` with `error.kind: "bootstrap_error"`.
 
 Without `sessionConfig`, the inner Phoenix session uses its default behavior:
 the initial value is `null`, and a successful join keeps the current value
