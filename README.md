@@ -1,8 +1,9 @@
 # @rvct/d20sdk
 
-`@rvct/d20sdk` is a TypeScript runtime adapter for connecting sandboxed
-d20-compatible iframe modules to a shell application. It wraps the cross-window
-bootstrap exchange and returns a reactive runtime session for embedded modules.
+`@rvct/d20sdk` is a TypeScript adapter for connecting sandboxed d20-compatible
+iframe modules to a shell application. It wraps the cross-window bootstrap
+exchange and returns separate Shell connection and Phoenix session stores for
+embedded modules.
 
 ## Installation
 
@@ -48,45 +49,92 @@ const cleanup = () => {
 };
 ```
 
-Embedded modules use `shell(...)` to create a reactive runtime store. The first
-subscription requests bootstrap from the parent shell, creates the Phoenix
-socket, and subscribes to the runtime session. Direct standalone launch emits a
-`standalone` status.
+Embedded modules use `shell(...)` to create Shell connection and Phoenix session
+stores. The first subscription requests bootstrap from the parent shell and
+creates the Phoenix socket. Direct standalone launch emits a `standalone`
+connection status while the session store stays in its initial loading state.
 
 ```ts
 import { shell } from "@rvct/d20sdk";
 
-const runtime = shell({
-  allowedOrigins: ["https://shell.example.com"],
+type GameValue = {
+  turn: number;
+};
+
+type GameJoinOk = {
+  turn: number;
+};
+
+const runtime = shell<GameValue>(
+  {
+    allowedOrigins: ["https://shell.example.com"],
+  },
+  {
+    value: {
+      turn: 0,
+    },
+    connect: {
+      ok(_value, reply: GameJoinOk) {
+        return {
+          turn: reply.turn,
+        };
+      },
+    },
+  },
+);
+
+const unsubscribeConnection = runtime.connection.subscribe((connection) => {
+  console.log(connection.status, connection.error);
 });
 
-const unsubscribe = runtime.subscribe((state) => {
-  console.log(state.status, state.value, state.error);
+const unsubscribeSession = runtime.session.subscribe((session) => {
+  console.log(session.status, session.value, session.error);
 });
 ```
 
-Use `extend` before the first subscription to expose module-specific actions.
-The `push` function is only available inside the extension factory. The factory
-should only declare methods; call `push` inside returned methods, not while
-building the returned object.
+Use the shell session store's Phoenix-compatible `extend` to expose
+module-specific actions. The `call` and `cast` functions are only available
+inside the extension factory. The factory should only declare methods; call or
+cast inside returned methods, not while building the returned object.
 
 ```ts
-const game = shell<GameSession>({
-  allowedOrigins: ["https://shell.example.com"],
-}).extend(({ push }) => ({
+type GameValue = {
+  turn: number;
+};
+
+type StartError = {
+  reason?: string;
+};
+
+const runtime = shell<GameValue>(
+  {
+    allowedOrigins: ["https://shell.example.com"],
+  },
+  {
+    value: {
+      turn: 0,
+    },
+  },
+);
+
+const game = runtime.session.extend(({ call }) => ({
   start() {
-    return push("start", {});
+    return call<Record<string, never>, StartError>("start", {});
   },
 }));
 
-game.start();
+const unsubscribeGame = game.subscribe((state) => {
+  console.log(state.status, state.processing.start);
+});
+
+const startGame = () => game.start();
 ```
 
 ## API
 
-The package does not export application-specific runtime session type aliases.
-If the consuming application owns a concrete Phoenix session contract, it can
-pass that type to `shell(...)` as a generic parameter.
+The package does not export application-specific session type aliases. If the
+consuming application owns a concrete Phoenix session value type, it can pass
+that type to `shell(...)` as a generic parameter.
 
 ### `module(options)`
 
@@ -104,7 +152,7 @@ The returned connection is the
 [Penpal connection object](https://github.com/Aaronius/penpal). Call `destroy()`
 when the iframe or component is removed.
 
-### `shell<TSessionSpec>(options)`
+### `shell<TValue>(options, sessionConfig?)`
 
 Embedded-module API for connecting to a parent shell.
 
@@ -114,18 +162,61 @@ Embedded-module API for connecting to a parent shell.
   Calling `shell()` without options uses `*`; production modules should pass a
   concrete origin.
 
-`TSessionSpec` is passed through to
+`shell(...)` returns:
+
+```ts
+{
+  connection: ReadableStore<ShellConnectionState>;
+  session: ShellSession<TValue>;
+}
+```
+
+In Svelte, destructure the two stores and use them independently:
+
+```svelte
+{#if $connection.status === "failed"}
+  <p>{$connection.error.kind}</p>
+{:else if $connection.status === "connected"}
+  <p>{$session.status}</p>
+  <p>{$session.value?.turn}</p>
+{/if}
+```
+
+`connection` only represents the Shell/Penpal/bootstrap lifecycle:
+
+- `loading` - the SDK is waiting for parent Shell bootstrap.
+- `standalone` - the module is not running in a Shell iframe.
+- `connected` - bootstrap succeeded and the inner Phoenix session has been
+  created.
+- `failed` - Shell bootstrap failed.
+
+`connection.status: "connected"` does not mean the Phoenix channel is ready. It
+only means the SDK has created the inner Phoenix session. Read `session` to get
+the Phoenix `loading`, `ready`, `stale`, or `failed` state.
+
+`sessionConfig` is passed through to
 [`@rvct/phoenix` `session(...)`](https://github.com/ravecat/phoenix#basic-usage)
-and controls the typed runtime state, events, and actions. `shell(...)` is
-synchronous and cold: no Penpal or Phoenix work starts until the runtime has a
-subscriber. Outside an iframe, the runtime state becomes `standalone`. A failed
-shell bootstrap emits `status: "failed"` with `error.kind: "bootstrap_error"`.
+as the inner session config. The SDK fills `topic` from the shell bootstrap, so
+embedded modules configure `value`, `connect`, and `events`, but not `topic`.
+
+`TValue` is passed through to
+[`@rvct/phoenix` `session(...)`](https://github.com/ravecat/phoenix#basic-usage)
+as the session `value` type. It is not the full store state and not the old
+Phoenix session contract object. Actions are owned by the inner Phoenix session;
+methods returning `call<TOk, TError>(...)` type their `state.errors[method]`
+bucket as `TError | null`. `shell(...)` is synchronous and cold: no Penpal or
+Phoenix work starts until `connection` or `session` has a subscriber. Outside an
+iframe, the shell connection state becomes `standalone`. A failed shell
+bootstrap emits `status: "failed"` with `error.kind: "bootstrap_error"`.
+
+Without `sessionConfig`, the inner Phoenix session uses its default behavior:
+the initial value is `null`, and a successful join keeps the current value
+unless `connect.ok` is configured.
 
 ## References
 
 - [`@rvct/phoenix`](https://github.com/ravecat/phoenix) provides the reactive
-  `session(...)` wrapper and the `TSessionSpec` contract shape consumed by this
-  package.
+  `session(...)` wrapper and the `TValue` value type consumed by this package.
 - [Phoenix JavaScript client](https://hexdocs.pm/phoenix/js/) provides the
   `Socket` and `Channel` primitives used after bootstrap.
 - [Phoenix Channels](https://hexdocs.pm/phoenix/channels.html) define the
