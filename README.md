@@ -217,12 +217,12 @@ Read `$session.status` to get the Phoenix `loading`, `ready`, `stale`, or
 `failed` state.
 
 `sessionConfig` is passed through to
-[`@rvct/phoenix` `defer(...)`](https://github.com/ravecat/phoenix#deferred-sessions)
+[`@rvct/phoenix` `session(...)`](https://github.com/ravecat/phoenix#lazy-transport-attachment)
 as the session config. The SDK attaches `topic` from the shell bootstrap, so
 embedded modules configure `value`, `connect`, and `events`, but not `topic`.
 
 `TValue` is passed through to
-[`@rvct/phoenix` `defer(...)`](https://github.com/ravecat/phoenix#deferred-sessions)
+[`@rvct/phoenix` `session(...)`](https://github.com/ravecat/phoenix#lazy-transport-attachment)
 as the session `value` type. It is not the full store state and not the old
 Phoenix session contract object. Actions are owned by the Phoenix session;
 methods returning `call<TOk, TError>(...)` type their `$session.errors[method]`
