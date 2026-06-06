@@ -1,6 +1,6 @@
 import { session } from "@rvct/phoenix"
 import { atom, onMount } from "nanostores"
-import { connect as connectToContext, WindowMessenger } from "penpal"
+import { connect, WindowMessenger } from "penpal"
 import { Socket } from "phoenix"
 import type { ShellMethods, WindowMessengerOptions } from "./types"
 
@@ -55,7 +55,7 @@ export type Shell<TValue = unknown> = {
   readonly session: ShellSession<TValue>
 }
 
-export function connect<TValue = unknown>(
+export function shell<TValue = unknown>(
   options: ShellConnectOptions = {},
   sessionConfig: ShellSessionConfig<TValue> = {},
 ): Shell<TValue> {
@@ -87,7 +87,7 @@ export function connect<TValue = unknown>(
 
     let cancelled = false
     let socket: Socket | null = null
-    let shellConnection: ReturnType<typeof connectToContext<ShellMethods>> | null = null
+    let shellConnection: ReturnType<typeof connect<ShellMethods>> | null = null
 
     void (async () => {
       try {
@@ -96,7 +96,7 @@ export function connect<TValue = unknown>(
           remoteWindow: options.remoteWindow ?? window.parent,
         }
 
-        shellConnection = connectToContext<ShellMethods>({
+        shellConnection = connect<ShellMethods>({
           messenger: new WindowMessenger(messengerOptions),
         })
 

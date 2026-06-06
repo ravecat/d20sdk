@@ -1,11 +1,11 @@
-import { connect as connectToContext, WindowMessenger } from "penpal"
+import { connect, WindowMessenger } from "penpal"
 import type { ModuleBootstrapPayload, ShellMethods, WindowMessengerOptions } from "./types"
 
 type ModuleConnectOptions = WindowMessengerOptions & {
   bootstrap: ModuleBootstrapPayload
 }
 
-export function connect(options: ModuleConnectOptions) {
+export function module(options: ModuleConnectOptions) {
   const { bootstrap, ...messengerOptions } = options
   const methods: ShellMethods = {
     bootstrap() {
@@ -13,7 +13,7 @@ export function connect(options: ModuleConnectOptions) {
     },
   }
 
-  return connectToContext({
+  return connect({
     messenger: new WindowMessenger(messengerOptions),
     methods,
   })
