@@ -23,9 +23,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@v17
 
-      - name: Cache Nix store
-        uses: DeterminateSystems/magic-nix-cache-action@v13
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
