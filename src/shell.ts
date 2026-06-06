@@ -1,5 +1,5 @@
-import { session } from "@rvct/phoenix"
-import { atom, onMount } from "nanostores"
+import { session as createSession } from "@rvct/phoenix"
+import { atom } from "nanostores"
 import { connect, WindowMessenger } from "penpal"
 import { Socket } from "phoenix"
 import type { ShellMethods, WindowMessengerOptions } from "./types"
@@ -7,32 +7,18 @@ import type { ShellMethods, WindowMessengerOptions } from "./types"
 type ShellConnectOptions = Omit<WindowMessengerOptions, "remoteWindow"> &
   Partial<Pick<WindowMessengerOptions, "remoteWindow">>
 
-export type ShellSession<TValue = unknown> = ReturnType<typeof session<TValue>>
-
-type ChannelHandler<TArgs extends unknown[], TResult> = {
-  handle(...args: TArgs): TResult
-}["handle"]
-
-type ShellSessionConfig<TValue> = {
-  value?: TValue | null
-  connect?: {
-    ok?: ChannelHandler<[Readonly<TValue> | null, unknown], TValue>
-    error?: ChannelHandler<[unknown], unknown>
-    timeout?: () => unknown
-  }
-  events?: Record<string, ChannelHandler<[Readonly<TValue> | null, unknown], TValue>>
+type OneArgOverloadFirstParameter<TFunction> = TFunction extends {
+  (...args: infer TFirst): unknown
+  (...args: infer TSecond): unknown
 }
+  ? Extract<TFirst | TSecond, [] | [unknown?]>[0]
+  : never
 
 type ReadableStore<TValue> = {
   subscribe(listener: (value: TValue) => void): () => void
 }
 
-export type ShellConnectionError = {
-  kind: "bootstrap_error"
-  cause: unknown
-}
-
-export type ShellConnectionState =
+type ShellConnectionState =
   | {
       readonly status: "loading"
       readonly error: null
@@ -47,37 +33,47 @@ export type ShellConnectionState =
     }
   | {
       readonly status: "failed"
-      readonly error: ShellConnectionError
+      readonly error: {
+        kind: "bootstrap_error"
+        cause: unknown
+      }
     }
 
-export type Shell<TValue = unknown> = {
+type Shell<TValue = unknown> = {
   readonly connection: ReadableStore<ShellConnectionState>
-  readonly session: ShellSession<TValue>
+  readonly session: ReturnType<typeof createSession<TValue>>
 }
 
 export function shell<TValue = unknown>(
   options: ShellConnectOptions = {},
-  sessionConfig: ShellSessionConfig<TValue> = {},
+  sessionConfig: OneArgOverloadFirstParameter<typeof createSession<TValue>> = {},
 ): Shell<TValue> {
   const $connection = atom<ShellConnectionState>({
     status: "loading",
     error: null,
   })
-  const shellSession = session<TValue>(sessionConfig)
+  const session = createSession<TValue>(sessionConfig)
 
-  let activeStores = 0
-  let stopConnection = () => {}
+  let started = false
+  let socket: Socket | null = null
 
-  const startConnection = () => {
-    shellSession.detach()
+  const start = () => {
+    if (started) {
+      return
+    }
 
-    if (window.parent === window) {
+    started = true
+    session.detach()
+
+    const currentWindow = typeof window === "undefined" ? null : window
+
+    if (!currentWindow || currentWindow.parent === currentWindow) {
       $connection.set({
         status: "standalone",
         error: null,
       })
 
-      return () => {}
+      return
     }
 
     $connection.set({
@@ -85,120 +81,70 @@ export function shell<TValue = unknown>(
       error: null,
     })
 
-    let cancelled = false
-    let socket: Socket | null = null
-    let shellConnection: ReturnType<typeof connect<ShellMethods>> | null = null
-
     void (async () => {
       try {
         const messengerOptions: WindowMessengerOptions = {
           ...options,
-          remoteWindow: options.remoteWindow ?? window.parent,
+          remoteWindow: options.remoteWindow ?? currentWindow.parent,
         }
 
-        shellConnection = connect<ShellMethods>({
+        const connection = connect<ShellMethods>({
           messenger: new WindowMessenger(messengerOptions),
         })
 
-        const shell = await shellConnection.promise
-        const bootstrap = await shell.bootstrap()
+        try {
+          const shell = await connection.promise
+          const bootstrap = await shell.bootstrap()
 
-        shellConnection.destroy()
-        shellConnection = null
+          socket = new Socket(bootstrap.endpoint, {
+            authToken: bootstrap.token,
+          })
+          socket.connect()
 
-        if (cancelled) {
-          return
+          session.attach(socket, {
+            topic: bootstrap.topic,
+          })
+          $connection.set({
+            status: "connected",
+            error: null,
+          })
+        } finally {
+          connection.destroy()
         }
-
-        socket = new Socket(bootstrap.endpoint, {
-          authToken: bootstrap.token,
-        })
-        socket.connect()
-
-        shellSession.attach(socket, {
-          topic: bootstrap.topic,
-        })
-        $connection.set({
-          status: "connected",
-          error: null,
-        })
       } catch (cause) {
-        if (cancelled) {
-          return
-        }
-
-        shellSession.detach()
+        session.detach()
         $connection.set({
           status: "failed",
           error: { kind: "bootstrap_error", cause },
         })
-      } finally {
-        shellConnection?.destroy()
-        shellConnection = null
       }
     })()
-
-    return () => {
-      cancelled = true
-      shellConnection?.destroy()
-      socket?.disconnect()
-      shellSession.detach()
-    }
-  }
-
-  const mountStore = () => {
-    activeStores += 1
-
-    if (activeStores === 1) {
-      stopConnection = startConnection()
-    }
-
-    return () => {
-      activeStores -= 1
-
-      if (activeStores === 0) {
-        stopConnection()
-        stopConnection = () => {}
-      }
-    }
-  }
-
-  onMount($connection, mountStore)
-
-  const withShellMount = <TState, TStore extends ReadableStore<TState>>(store: TStore): TStore =>
-    ({
-      ...store,
-      subscribe(listener) {
-        const unmountShell = mountStore()
-        const unsubscribeStore = store.subscribe(listener)
-
-        return () => {
-          unsubscribeStore()
-          unmountShell()
-        }
-      },
-    }) as TStore
-
-  const sessionStore: ShellSession<TValue> = {
-    ...shellSession,
-    subscribe(listener) {
-      const unmountShell = mountStore()
-      const unsubscribeStore = shellSession.subscribe(listener)
-
-      return () => {
-        unsubscribeStore()
-        unmountShell()
-      }
-    },
-    extend(defineExtension) {
-      return withShellMount(shellSession.extend(defineExtension))
-    },
   }
 
   return {
     connection: {
-      subscribe: (listener) => $connection.subscribe(listener),
+      subscribe(listener) {
+        start()
+        return $connection.subscribe(listener)
+      },
     },
-    session: sessionStore,
+    session: {
+      ...session,
+      subscribe(listener) {
+        start()
+        return session.subscribe(listener)
+      },
+      extend(extension) {
+        const extendedSession = session.extend(extension)
+
+        return {
+          ...extendedSession,
+          subscribe(listener) {
+            start()
+            return extendedSession.subscribe(listener)
+          },
+        }
+      },
+    },
   }
 }

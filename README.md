@@ -53,6 +53,8 @@ Embedded modules use `shell(...)` to create Shell connection and Phoenix session
 stores. The first subscription requests bootstrap from the parent shell and
 creates the Phoenix socket. Direct standalone launch emits a `standalone`
 connection status while the session store stays in its initial loading state.
+Unsubscribing from the returned stores removes only that listener; it does not
+disconnect the socket or detach the Phoenix session.
 
 ```ts
 import { shell } from "@rvct/d20sdk";
@@ -134,9 +136,9 @@ const startGame = () => game.start();
 
 ## API
 
-The package does not export application-specific session type aliases. If the
-consuming application owns a concrete Phoenix session value type, it can pass
-that type to `shell(...)` as a generic parameter.
+The package exports runtime functions only. Store and state types are inferred
+from `shell(...)`; if the consuming application owns a concrete Phoenix session
+value type, it can pass that type to `shell(...)` as a generic parameter.
 
 ### `module(options)`
 
@@ -164,14 +166,9 @@ Embedded-module API for connecting to a parent shell.
   Calling `shell()` without options uses `*`; production modules should pass a
   concrete origin.
 
-`shell(...)` returns:
-
-```ts
-{
-  connection: ReadableStore<ShellConnectionState>;
-  session: ShellSession<TValue>;
-}
-```
+`shell(...)` returns `connection` and `session` stores. Both expose
+`subscribe(listener): unsubscribe`; their listener values are inferred from the
+returned stores.
 
 In Svelte, destructure the two stores. `$connection` is the Shell/bootstrap
 state; `$session` is the Phoenix session state:
@@ -190,13 +187,17 @@ to subscribe to the same Phoenix state:
 
 ```svelte
 <script lang="ts">
-  import type { ShellSession } from "@rvct/d20sdk";
+  import type { shell } from "@rvct/d20sdk";
 
   type GameValue = {
     turn: number;
   };
 
-  let { session }: { session: ShellSession<GameValue> } = $props();
+  let {
+    session,
+  }: {
+    session: ReturnType<typeof shell<GameValue>>["session"];
+  } = $props();
 </script>
 
 <p>{$session.status}</p>
@@ -227,9 +228,12 @@ as the session `value` type. It is not the full store state and not the old
 Phoenix session contract object. Actions are owned by the Phoenix session;
 methods returning `call<TOk, TError>(...)` type their `$session.errors[method]`
 bucket as `TError | null`. `shell(...)` is synchronous and cold: no Penpal or
-Phoenix work starts until `connection` or `session` has a subscriber. Outside an
-iframe, the shell connection state becomes `standalone` and `session` remains in
-its initial Phoenix loading state. A failed shell bootstrap emits
+Phoenix work starts until `connection` or `session` has a subscriber. A
+subscription to either store starts the shell runtime once. Unsubscribing
+removes the listener from that store, but it does not stop the shell runtime,
+disconnect the socket, or detach the Phoenix session. Outside an iframe, the
+shell connection state becomes `standalone` and `session` remains in its initial
+Phoenix loading state. A failed shell bootstrap emits
 `connection.status: "failed"` with `connection.error.kind: "bootstrap_error"`.
 
 Without `sessionConfig`, the Phoenix session uses its default behavior: the
