@@ -92,25 +92,21 @@ export function shell<TValue = unknown>(
           messenger: new WindowMessenger(messengerOptions),
         })
 
-        try {
-          const shell = await connection.promise
-          const bootstrap = await shell.bootstrap()
+        const shell = await connection.promise
+        const bootstrap = await shell.bootstrap()
 
-          socket = new Socket(bootstrap.endpoint, {
-            authToken: bootstrap.token,
-          })
-          socket.connect()
+        socket = new Socket(bootstrap.endpoint, {
+          authToken: bootstrap.token,
+        })
+        socket.connect()
 
-          session.attach(socket, {
-            topic: bootstrap.topic,
-          })
-          $connection.set({
-            status: "connected",
-            error: null,
-          })
-        } finally {
-          connection.destroy()
-        }
+        session.attach(socket, {
+          topic: bootstrap.topic,
+        })
+        $connection.set({
+          status: "connected",
+          error: null,
+        })
       } catch (cause) {
         session.detach()
         $connection.set({
